@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qlip"
+version = "0.1.0"
+description = "Print page metadata (url, title, site, date, description) for a URL."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Dan Nguyen" }]
+keywords = ["cli", "metadata", "opengraph", "scraping"]
+dependencies = [
+    "click>=8.1",
+    "requests>=2.28",
+    "beautifulsoup4>=4.11",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[project.scripts]
+qlip = "qlip.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qlip"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
