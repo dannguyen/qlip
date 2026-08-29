@@ -1,6 +1,9 @@
 from pathlib import Path
 
-from qlip.extract import _strip_site_suffix, extract
+import pytest
+from curl_cffi.requests.exceptions import HTTPError
+
+from qlip.extract import _strip_site_suffix, extract, fetch
 
 FIXTURE = Path(__file__).parent / "fixtures" / "cwbchicago.html"
 URL = (
@@ -56,6 +59,61 @@ def test_date_falls_back_to_time_element():
     )
     rec = extract(html, "https://acme.test/")
     assert rec["date"] == "2024-01-02T03:04:05Z"
+
+
+class FakeResponse:
+    def __init__(self, status_code, text=""):
+        self.status_code = status_code
+        self.text = text
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise HTTPError(f"{self.status_code} for url")
+
+
+class FakeSession:
+    """Records every .get() call and replays canned responses in order."""
+
+    def __init__(self, *responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    def get(self, url, **kwargs):
+        self.calls.append(kwargs)
+        return self._responses.pop(0)
+
+
+def test_fetch_returns_body_on_success_without_impersonation():
+    session = FakeSession(FakeResponse(200, "<html>ok</html>"))
+    assert fetch("https://example.com/", session=session) == "<html>ok</html>"
+    [call] = session.calls
+    assert "impersonate" not in call
+
+
+@pytest.mark.parametrize("blocked_status", [403, 429])
+def test_fetch_falls_back_to_chrome_impersonation_when_blocked(blocked_status):
+    session = FakeSession(
+        FakeResponse(blocked_status), FakeResponse(200, "<html>via chrome</html>")
+    )
+    assert fetch("https://example.com/", session=session) == "<html>via chrome</html>"
+    plain, impersonated = session.calls
+    assert impersonated["impersonate"] == "chrome"
+    # Impersonation supplies real Chrome headers; ours must not override them.
+    assert "headers" not in impersonated
+
+
+def test_fetch_raises_when_impersonation_is_also_blocked():
+    session = FakeSession(FakeResponse(403), FakeResponse(403))
+    with pytest.raises(HTTPError):
+        fetch("https://example.com/", session=session)
+    assert len(session.calls) == 2
+
+
+def test_fetch_does_not_retry_on_ordinary_http_errors():
+    session = FakeSession(FakeResponse(404))
+    with pytest.raises(HTTPError):
+        fetch("https://example.com/", session=session)
+    assert len(session.calls) == 1
 
 
 def test_strip_site_suffix_helper():

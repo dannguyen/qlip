@@ -4,19 +4,23 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-import requests
 from bs4 import BeautifulSoup
+from curl_cffi import requests
 
 # Output field order. Drives YAML key order and CSV columns, so keep it stable.
 FIELDS = ("url", "title", "site", "date", "description")
 
-# A browser-like UA; the bare ``python-requests`` default gets 403'd by many sites.
+# A browser-like UA; a bare library default UA gets 403'd by many sites.
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
 )
 
 DEFAULT_TIMEOUT = 15
+
+# Statuses that bot-mitigation services (PerimeterX, Cloudflare, Akamai) return
+# when they don't like the client fingerprint — worth retrying as "Chrome".
+_BLOCKED_STATUSES = frozenset({403, 429})
 
 # Separators SEO plugins put between a headline and the site name,
 # e.g. "Headline - Site Name" or "Headline | Site Name".
@@ -26,7 +30,10 @@ _TITLE_SEPARATORS = (" - ", " | ", " – ", " — ", " :: ", " · ", " • ")
 def fetch(url, *, timeout=DEFAULT_TIMEOUT, session=None):
     """Download ``url`` and return its HTML as text.
 
-    Raises ``requests.RequestException`` (incl. non-2xx via ``raise_for_status``).
+    Tries a plain request first; if the server blocks it (403/429), retries
+    impersonating Chrome's TLS/HTTP fingerprint via curl_cffi. Raises
+    ``curl_cffi.requests.exceptions.RequestException`` (incl. non-2xx via
+    ``raise_for_status``).
     """
     getter = session or requests
     resp = getter.get(
@@ -38,6 +45,10 @@ def fetch(url, *, timeout=DEFAULT_TIMEOUT, session=None):
         },
         timeout=timeout,
     )
+    if resp.status_code in _BLOCKED_STATUSES:
+        # No custom headers here: impersonation sends real Chrome headers that
+        # must stay consistent with the impersonated TLS fingerprint.
+        resp = getter.get(url, timeout=timeout, impersonate="chrome")
     resp.raise_for_status()
     return resp.text
 

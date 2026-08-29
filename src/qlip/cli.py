@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 
 import click
-import requests
+from curl_cffi.requests.exceptions import RequestException
 
 from .extract import extract, fetch
 from .render import FORMATS, render
@@ -35,7 +35,7 @@ def main(url, fmt):
     for target in urls:
         try:
             html = fetch(target)
-        except requests.RequestException as exc:
+        except RequestException as exc:
             raise click.ClickException(f"failed to fetch {target}: {exc}") from exc
         records.append(extract(html, target))
 

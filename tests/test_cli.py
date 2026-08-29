@@ -2,6 +2,7 @@ from pathlib import Path
 
 import yaml
 from click.testing import CliRunner
+from curl_cffi.requests.exceptions import RequestException
 
 from qlip import cli
 
@@ -49,6 +50,17 @@ def test_dash_argument_reads_stdin(monkeypatch):
     result = CliRunner().invoke(cli.main, ["-"], input=f"{URL}\n")
     assert result.exit_code == 0
     assert len(yaml.safe_load(result.output)) == 1
+
+
+def test_fetch_failure_is_a_clean_error(monkeypatch):
+    def boom(target, **kw):
+        raise RequestException("403 Client Error")
+
+    monkeypatch.setattr(cli, "fetch", boom)
+    result = CliRunner().invoke(cli.main, [URL])
+    assert result.exit_code != 0
+    assert "failed to fetch" in result.output
+    assert "403 Client Error" in result.output
 
 
 def test_empty_stdin_is_a_usage_error(monkeypatch):
